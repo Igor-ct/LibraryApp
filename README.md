@@ -44,6 +44,9 @@ LibraryApp/
     ├── Core/
     │   ├── Core.csproj
     │   ├── EnvironmentInfo.cs
+    │   ├── Storage/
+    │   ├── BookDto/
+    │   ├── Domain/
     │   └── EnvironmentReport.cs
     └── Cli/
         ├── Cli.csproj
