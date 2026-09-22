@@ -1,13 +1,19 @@
 # LibraryApp
+
  Наскрізний проєкт з крос-платформного програмування.
  Предметна область: Бібліотека. Сутності: Book, BookCopy, Reader, Loan.
  Призначення: облік видач примірників книг читачам.
+
 ## Запуск
+
 1. build:
+
 ```bash
  dotnet build
 ```
+
 2. Запуск консольного застосунку:
+
 ```bash
  dotnet run --project src/Cli
 ```
@@ -31,6 +37,7 @@ dotnet publish src/Cli -c Release -r win-x64 --self-contained false
 ```
 
 ## Середовище
+
 .NET SDK 10.0, Windows 11 x64 / Ubuntu 26.04 x64
 
 ## Структура проекту
@@ -53,13 +60,13 @@ LibraryApp/
         └── Program.cs
 ```
 
-### Залежності проекту 
+### Залежності проекту
 
-CLI -> CORE 
+CLI -> CORE
 
-## Додаткова інформацяія 
-|RID	   | Режим              |	Розмір publish |	Потрібен встановлений .NET Runtime |
-|win-x64   | Self-contained     |	76,68 MB       | Ні                                    |
-|win-x64   | Framework-dependent|	0,19 MB	       | Так                                   |
-|linux-x64 | Self-contained     |	78,79 MB	   | Ні                                    | 
+## Додаткова інформацяія
 
+|RID    | Режим              | Розмір publish | Потрібен встановлений .NET Runtime |
+|win-x64   | Self-contained     | 76,68 MB       | Ні                                    |
+|win-x64   | Framework-dependent| 0,19 MB        | Так                                   |
+|linux-x64 | Self-contained     | 78,79 MB    | Ні                                    |
