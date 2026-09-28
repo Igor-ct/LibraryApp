@@ -41,20 +41,21 @@ dotnet publish src/Cli -c Release -r win-x64 --self-contained false
 .NET SDK 10.0, Windows 11 x64 / Ubuntu 26.04 x64
 
 ## Структура проекту
-
 ```
 LibraryApp/
 ├── LibraryApp.sln
 ├── README.md
-├── .gitignore
+├── data/
+│   └── sample.csv
 └── src/
     ├── Core/
     │   ├── Core.csproj
     │   ├── EnvironmentInfo.cs
-    │   ├── Storage/
-    │   ├── BookDto/
-    │   ├── Domain/
-    │   └── EnvironmentReport.cs
+    │   ├── EnvironmentReport.cs
+    │   ├── Domain/           # Сутності з поведінкою (BookCopy, Loan, Reader, LoanStatus)
+    │   ├── Dto/              # Формати даних для імпорту/експорту
+    │   ├── Import/           # Парсери (CSV, JSON, Mixed)
+    │   └── Storage/
     └── Cli/
         ├── Cli.csproj
         └── Program.cs
@@ -64,9 +65,19 @@ LibraryApp/
 
 CLI -> CORE
 
+## Інваріанти доменної моделі
+
+- Обов'язкові ключі: Ідентифікатори та ключові рядки (ISBN) не можуть бути порожніми (ArgumentException).
+- Коректність значень: Рік (видання/реєстрації) має бути в адекватних межах, лічильники не можуть бути від'ємними (ArgumentOutOfRangeException).
+- Захист стану (BookCopy): Неможливо видати вже виданий примірник (InvalidOperationException).
+- Хронологія (Loan): Дата повернення не може бути раніше дати видачі (ArgumentOutOfRangeException).
+- Машина станів (LoanStatus): Заборонені некоректні переходи (наприклад, із Closed назад у Open) (InvalidOperationException).
+- Ліміт видач (Reader): Читач не може взяти більше 5 книг одночасно (InvalidOperationException).
+
 ## Додаткова інформацяія
 
-|RID    | Режим              | Розмір publish | Потрібен встановлений .NET Runtime |
-|win-x64   | Self-contained     | 76,68 MB       | Ні                                    |
-|win-x64   | Framework-dependent| 0,19 MB        | Так                                   |
-|linux-x64 | Self-contained     | 78,79 MB    | Ні                                    |
+| RID       | Режим               | Розмір publish | Потрібен встановлений .NET Runtime |
+|-----------|---------------------|----------------|-------------------------------------|
+| win-x64   | Self-contained      | 76,68 MB       | Ні                                  |
+| win-x64   | Framework-dependent | 0,19 MB        | Так                                 |
+| linux-x64 | Self-contained      | 78,79 MB       | Ні                                  |
