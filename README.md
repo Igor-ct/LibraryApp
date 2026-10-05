@@ -46,24 +46,39 @@ LibraryApp/
 ├── LibraryApp.sln
 ├── README.md
 ├── data/
-│   └── sample.csv
+│   ├── sample.csv
+│   └── library_catalog.json
 └── src/
     ├── Core/
     │   ├── Core.csproj
     │   ├── EnvironmentInfo.cs
     │   ├── EnvironmentReport.cs
+    │   ├── Abstractions/     # Інтерфейси (ILibraryStore)
     │   ├── Domain/           # Сутності з поведінкою (BookCopy, Loan, Reader, LoanStatus)
     │   ├── Dto/              # Формати даних для імпорту/експорту
     │   ├── Import/           # Парсери (CSV, JSON, Mixed)
-    │   └── Storage/
+    │   ├── Services/         # Бізнес-логіка (LendingService)
+    │   └── Storage/          # Реалізації сховищ (InMemory, File, Caching, StoreFactory)
     └── Cli/
         ├── Cli.csproj
-        └── Program.cs
+        └── Program.cs        # Composition Root
 ```
 
 ### Залежності проекту
 
 CLI -> CORE
+
+## Архітектура (Сервісний шар та сховища)
+
+Абстракція: ILibraryStore — контракт взаємодії зі сховищем (незалежність від інфраструктури).
+
+Реалізації сховища:
+- InMemoryLibraryStore — тимчасове зберігання в оперативній пам'яті.
+- FileLibraryStore — збереження стану на диск у форматі JSON.
+- CachingLibraryStore — декоратор для кешування запитів до диска.
+
+Сервіс: LendingService — координує бізнес-операції предметної області, покладаючись виключно на інтерфейс ILibraryStore.
+- DI: Ручне впровадження залежностей (Manual DI) налаштовано в точці входу за допомогою StoreFactory.
 
 ## Інваріанти доменної моделі
 
