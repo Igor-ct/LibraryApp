@@ -5,7 +5,7 @@ namespace Core.Import;
 
 public static class BookJsonImporter
 {
-    public static ImportResult<BookDto> Load(string path)
+    public static ImportResult<BookDto> Load(string path, Action<string>? onSkip = null)
     {
         var items = new List<BookDto>();
         var errors = new List<string>();
@@ -18,7 +18,9 @@ public static class BookJsonImporter
 
             if (doc.RootElement.ValueKind != JsonValueKind.Array)
             {
-                errors.Add("Фатальна помилка: JSON має бути масивом об'єктів");
+                string msg = "Фатальна помилка: JSON має бути масивом об'єктів";
+                errors.Add(msg);
+                onSkip?.Invoke(msg); 
                 return new ImportResult<BookDto>(items, errors);
             }
 
@@ -28,9 +30,11 @@ public static class BookJsonImporter
             foreach (JsonElement element in doc.RootElement.EnumerateArray())
             {
                 int propCount = element.EnumerateObject().Count();
-                if (propCount > 5) 
+                if (propCount > 5)
                 {
-                    errors.Add($"запис {number}: занадто багато параметрів, отримав {propCount}");
+                    string msg = $"запис {number}: занадто багато параметрів, отримав {propCount}";
+                    errors.Add(msg);
+                    onSkip?.Invoke(msg);
                     number++;
                     continue;
                 }
@@ -45,7 +49,9 @@ public static class BookJsonImporter
                             items.Add(ok.Value);
                             break;
                         case ParseFailed failed:
-                            errors.Add($"запис {number}: {failed.Reason}");
+                            string msg = $"запис {number}: {failed.Reason}";
+                            errors.Add(msg);
+                            onSkip?.Invoke(msg);
                             break;
                     }
                 }
@@ -55,7 +61,9 @@ public static class BookJsonImporter
         }
         catch (JsonException ex)
         {
-            errors.Add($"Фатальна помилка структури JSON: {ex.Message}");
+            string msg = $"Фатальна помилка структури JSON: {ex.Message}";
+            errors.Add(msg);
+            onSkip?.Invoke(msg); 
         }
 
         return new ImportResult<BookDto>(items, errors);

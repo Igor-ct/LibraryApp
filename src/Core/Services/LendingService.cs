@@ -2,12 +2,30 @@
 using System.Collections.Generic;
 using Core.Abstractions;
 using Core.Domain;
+using Core.Events; 
 
 namespace Core.Services;
 
-public sealed class LendingService(ILibraryStore store)
+public sealed class LendingService(ILibraryStore store, IEnumerable<INotificationSink>? sinks = null)
 {
     private readonly ILibraryStore _store = store ?? throw new ArgumentNullException(nameof(store));
+
+    public event EventHandler<LibraryChangedEventArgs>? Changed;
+
+    private void OnChanged(string id, LibraryChangeKind kind)
+    {
+        var args = new LibraryChangedEventArgs(id, kind);
+
+        Changed?.Invoke(this, args);
+
+        if (sinks != null)
+        {
+            foreach (var sink in sinks)
+            {
+                sink.Notify(args);
+            }
+        }
+    }
 
     public BookCopy AddBook(string isbn, string title, int year, string? author = null)
     {
@@ -16,6 +34,8 @@ public sealed class LendingService(ILibraryStore store)
         var copy = BookCopy.Create(shortId, isbn, title, year, author);
         _store.Add(copy);
 
+        OnChanged(copy.Id, LibraryChangeKind.BookAdded);
+
         return copy;
     }
 
@@ -23,8 +43,10 @@ public sealed class LendingService(ILibraryStore store)
     {
         var copy = _store.GetById(id) ?? throw new InvalidOperationException($"Немає примірника з id={id}.");
 
-        copy.Issue(); 
-        _store.Update(copy); 
+        copy.Issue();
+        _store.Update(copy);
+
+        OnChanged(copy.Id, LibraryChangeKind.CopyIssued);
     }
 
     public void ReturnCopy(string id)
@@ -33,6 +55,8 @@ public sealed class LendingService(ILibraryStore store)
 
         copy.Return();
         _store.Update(copy);
+
+        OnChanged(copy.Id, LibraryChangeKind.CopyReturned);
     }
 
     public IReadOnlyList<BookCopy> All() => _store.List();
