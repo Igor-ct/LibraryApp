@@ -18,7 +18,7 @@ public static class ImportMapper
                 var entity = BookCopy.FromDto(dto);
                 validEntities.Add(entity);
             }
-            catch (Exception ex)
+            catch (ArgumentException ex)
             {
                 errors.Add($"Помилка валідації книги {dto.Id}: {ex.Message}");
             }

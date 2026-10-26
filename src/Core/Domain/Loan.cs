@@ -1,5 +1,6 @@
-﻿using System;
-using Core.Dto;
+﻿using Core.Dto;
+using Core.Exceptions;
+using System;
 
 namespace Core.Domain;
 
@@ -35,7 +36,7 @@ public sealed class Loan
             (LoanStatus.Open, LoanStatus.Closed) => newStatus,
             (LoanStatus.Open, LoanStatus.Overdue) => newStatus,
             (LoanStatus.Overdue, LoanStatus.Closed) => newStatus,
-            _ => throw new InvalidOperationException($"Неможливий перехід видачі {Id} зі стану {Status} у {newStatus}")
+            _ => throw new DomainException($"Неможливий перехід видачі {Id} зі стану {Status} у {newStatus}")
         };
     }
 

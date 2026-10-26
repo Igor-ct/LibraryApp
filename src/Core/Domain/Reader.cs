@@ -1,5 +1,6 @@
 ﻿using System;
 using Core.Dto;
+using Core.Exceptions;
 
 namespace Core.Domain;
 
@@ -39,18 +40,29 @@ public sealed class Reader
 
     public Loan BorrowBook(string loanId, BookCopy copy, DateTime issuedOn)
     {
-        if (ActiveLoansCount >= 5)
-            throw new InvalidOperationException($"Читач {FullName} вже має максимальну кількість відкритих видач (5).");
+        ArgumentNullException.ThrowIfNull(copy);
 
-        copy.Issue();
+        if (ActiveLoansCount >= 5)
+            throw new DomainException($"Читач {FullName} вже має максимальну кількість відкритих видач ({5}).");
+
+        var loan = Loan.Open(loanId, copy.Id, Id, issuedOn); 
+        copy.Issue();                                        
         ActiveLoansCount++;
 
-        return Loan.Open(loanId, copy.Id, Id, issuedOn);
+        return loan;
     }
 
     public void ReturnBook(BookCopy copy, Loan loan, DateTime returnedOn)
     {
-        loan.Close(returnedOn);
+        ArgumentNullException.ThrowIfNull(copy);
+        ArgumentNullException.ThrowIfNull(loan);
+
+        if (loan.ReaderId != Id || loan.CopyId != copy.Id)
+            throw new DomainException($"Видача {loan.Id} не належить читачу {FullName} або іншому примірнику.");
+        if (!copy.IsIssued)
+            throw new DomainException($"Примірник {copy.Id} не видавався");
+
+        loan.Close(returnedOn);   
         copy.Return();
         ActiveLoansCount--;
     }

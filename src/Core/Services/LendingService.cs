@@ -2,7 +2,8 @@
 using System.Collections.Generic;
 using Core.Abstractions;
 using Core.Domain;
-using Core.Events; 
+using Core.Events;
+using Core.Exceptions;
 
 namespace Core.Services;
 
@@ -41,7 +42,7 @@ public sealed class LendingService(ILibraryStore store, IEnumerable<INotificatio
 
     public void IssueCopy(string id)
     {
-        var copy = _store.GetById(id) ?? throw new InvalidOperationException($"Немає примірника з id={id}.");
+        var copy = _store.GetById(id) ?? throw new DomainException($"Немає примірника з id={id}.");
 
         copy.Issue();
         _store.Update(copy);
@@ -51,12 +52,32 @@ public sealed class LendingService(ILibraryStore store, IEnumerable<INotificatio
 
     public void ReturnCopy(string id)
     {
-        var copy = _store.GetById(id) ?? throw new InvalidOperationException($"Немає примірника з id={id}.");
+        var copy = _store.GetById(id) ?? throw new DomainException($"Немає примірника з id={id}.");
 
         copy.Return();
         _store.Update(copy);
 
         OnChanged(copy.Id, LibraryChangeKind.CopyReturned);
+    }
+
+    public async Task<int> ImportAsync(IBookImporter importer, string path,
+    IProgress<int>? progress = null, CancellationToken ct = default)
+    {
+        var added = 0;
+
+        await foreach (var item in importer.LoadAsync(path, progress, ct))
+        {
+            if (_store.GetById(item.Id) is not null) continue;
+
+            var book = BookCopy.Create(item.Id, item.Isbn, item.Title, item.Year, item.Author);
+
+            _store.Add(book);
+            OnChanged(book.Id, LibraryChangeKind.BookAdded);
+            added++;
+        }
+
+        progress?.Report(100);
+        return added;
     }
 
     public IReadOnlyList<BookCopy> All() => _store.List();

@@ -7,11 +7,15 @@ namespace Cli.Sinks;
 
 public class ConsoleSink : INotificationSink
 {
+    public bool IsMuted { get; set; } = false;
+
     public void Notify(LibraryChangedEventArgs args)
     {
-        Console.WriteLine($"[ConsoleSink] {args.At:HH:mm:ss} {args.Kind,-14} {args.CopyId}");
+        if (IsMuted) return;
+        Console.WriteLine($"[ConsoleSink] {args.At:HH:mm:ss} {args.Kind,-15} {args.CopyId}");
     }
 }
+
 
 public class FileSink(string logPath) : INotificationSink
 {

@@ -5,6 +5,10 @@ using Core.Events;
 using Core.Reports;
 using Core.Services;
 using Core.Storage;
+using Core.Import;
+using Core.Exceptions;
+using System.Threading;
+
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -15,7 +19,6 @@ using System.Text.Json;
 using System.Text.Unicode;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-
 
 if (args.Contains("--sysinfo"))
 {
@@ -58,6 +61,54 @@ var command = args.FirstOrDefault(a => !a.StartsWith("--")) ?? "report-top";
 
 switch (command)
 {
+    case "import":
+        Console.WriteLine("=== Асинхронний імпорт каталогу ===");
+
+        var consoleSink = (ConsoleSink)sinks.First(s => s is ConsoleSink);
+        consoleSink.IsMuted = true;
+
+        using (var userCts = new CancellationTokenSource())
+        using (var timeoutCts = new CancellationTokenSource(TimeSpan.FromSeconds(30)))
+        using (var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(userCts.Token, timeoutCts.Token))
+        {
+            Console.CancelKeyPress += (_, e) =>
+            {
+                e.Cancel = true;
+                userCts.Cancel();
+            };
+
+            var progress = new SyncProgress<int>(percent =>
+                Console.Write($"\r[Хід імпорту]: {percent}% завершено..."));
+
+            var importPath = Path.Combine(Environment.CurrentDirectory, "data", "sample.json");
+
+            try
+            {
+                var importer = new AsyncJsonBookImporter(TimeSpan.FromMilliseconds(100));
+                var added = await service.ImportAsync(importer, importPath, progress, linkedCts.Token);
+                Console.WriteLine($"\nУспішно імпортовано нових записів: {added}");
+            }
+            catch (OperationCanceledException)
+            {
+                Console.WriteLine(timeoutCts.IsCancellationRequested
+                    ? "\nІмпорт скасовано: перевищено час очікування (таймаут)."
+                    : "\nІмпорт скасовано користувачем (Ctrl+C).");
+            }
+            catch (DomainException ex)
+            {
+                Console.WriteLine($"\nДані відхилено: {ex.Message}");
+            }
+            catch (JsonException ex)
+            {
+                Console.WriteLine($"\nФайл пошкоджено (JSON): {ex.Message}");
+            }
+            catch (Exception ex) when (ex is FileNotFoundException || ex is DirectoryNotFoundException)
+            {
+                Console.WriteLine($"\nФайл або папку не знайдено: {importPath}");
+            }
+        }
+        break;
+
     case "report-top":
         Console.WriteLine("=== Топ-5 найновіших книг (Власний метод-розширення) ===");
         PrintLines(ReportService.TopNewest(items, 5));
@@ -96,7 +147,7 @@ switch (command)
         Console.WriteLine("=== Демонстрація відкладеного виконання LINQ ===");
         var sourceList = items.ToList();
 
-        var query = sourceList.Where(b => b.Year >= 2017); 
+        var query = sourceList.Where(b => b.Year >= 2017);
         Console.WriteLine($"Сучасних книг (до змін): {query.Count()}");
 
         sourceList.Add(Core.Domain.BookCopy.Create("C-999", "111", "Нова Сучасна Книга", 2026, "Автор"));
@@ -109,11 +160,11 @@ switch (command)
         break;
 
     case "report-perf":
-        RunPerformanceTest(); 
+        RunPerformanceTest();
         break;
 
     default:
-        Console.WriteLine("Команди: report-top | report-old | report-groups | report-sum | report-join | demo-deferred | report-perf");
+        Console.WriteLine("Команди: import | report-top | report-old | report-groups | report-sum | report-join | demo-deferred | report-perf");
         break;
 }
 
@@ -148,7 +199,7 @@ static void RunPerformanceTest()
     sw.Restart();
     var query2 = hugeData
         .Where(b => b.Year > 2000)
-        .ToList()    
+        .ToList()
         .OrderBy(b => b.Year)
         .Select(b => b.Title)
         .ToList();
