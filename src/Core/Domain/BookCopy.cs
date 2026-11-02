@@ -55,8 +55,8 @@ public sealed class BookCopy
     }
 
 
-    public BookDto ToDto() => new(Id, Isbn, Title, Year, Author);
+    public BookDto ToDto() => new(Id, Isbn, Title, Year, Author, IsIssued);
 
     public static BookCopy FromDto(BookDto dto, bool isIssued = false) =>
-        Create(dto.Id, dto.Isbn, dto.Title, dto.Year, dto.Author, isIssued);
+        Create(dto.Id, dto.Isbn, dto.Title, dto.Year, dto.Author, isIssued || dto.IsIssued);
 }

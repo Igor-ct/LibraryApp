@@ -8,7 +8,6 @@ using Core.Storage;
 using Core.Import;
 using Core.Exceptions;
 using System.Threading;
-
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
@@ -17,14 +16,16 @@ using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Unicode;
+using System.Reflection;
+using Core.Configuration;
+using Microsoft.Extensions.Configuration;
 
 Console.OutputEncoding = System.Text.Encoding.UTF8;
-
 if (args.Contains("--sysinfo"))
 {
     EnvironmentReport report = EnvironmentInfo.Collect();
-    var options = new JsonSerializerOptions { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All), WriteIndented = true };
-    if (args.Contains("--json")) Console.WriteLine(JsonSerializer.Serialize(report, options));
+    var sysOptions = new JsonSerializerOptions { Encoder = JavaScriptEncoder.Create(UnicodeRanges.All), WriteIndented = true };
+    if (args.Contains("--json")) Console.WriteLine(JsonSerializer.Serialize(report, sysOptions));
     else
     {
         Console.WriteLine(report.BuildNote);
@@ -40,22 +41,46 @@ if (args.Contains("--sysinfo"))
     return 0;
 }
 
-ILibraryStore store = StoreFactory.Create(args, AppContext.BaseDirectory);
+var envName = Environment.GetEnvironmentVariable("CROSSAPP_ENVIRONMENT") ?? "Development";
+var config = new ConfigurationBuilder()
+    .SetBasePath(AppContext.BaseDirectory)
+    .AddJsonFile("appsettings.json", optional: false)
+    .AddJsonFile($"appsettings.{envName}.json", optional: true)
+    .AddUserSecrets(Assembly.GetExecutingAssembly(), optional: true)
+    .AddEnvironmentVariables(prefix: "CROSSAPP_")
+    .Build();
 
-if (!store.List().Any())
+var options = config.Get<AppOptions>() ?? new AppOptions();
+var legacy = Environment.GetEnvironmentVariable("CROSSAPP_DATA_PATH");
+var storage = new StorageOptions
 {
-    foreach (var b in SampleData.Books()) store.Add(b);
+    DataPath = string.IsNullOrWhiteSpace(legacy) ? options.Storage.DataPath : legacy,
+    FileName = options.Storage.FileName
+};
+
+var dataFile = storage.ResolveFullPath(AppContext.BaseDirectory);
+var dataDir = Path.GetDirectoryName(dataFile)!;
+var apiKey = config["Integration:ApiKey"];
+
+ILibraryStore store;
+try
+{
+    store = StoreFactory.Create(args, dataFile);
+    if (!store.List().Any())
+        foreach (var b in SampleData.Books()) store.Add(b);
+}
+catch (Exception ex) when (ex is InvalidDataException or IOException)
+{
+    Console.WriteLine($"Не вдалося прочитати сховище: {ex.Message}");
+    return 1;
 }
 
 var logPath = Path.Combine(AppContext.BaseDirectory, "logs", "app.log");
 Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-
 var sinks = new INotificationSink[] { new ConsoleSink(), new FileSink(logPath) };
 var service = new LendingService(store, sinks);
-
 int changes = 0;
 service.Changed += (_, _) => changes++;
-
 var items = service.All();
 var command = args.FirstOrDefault(a => !a.StartsWith("--")) ?? "report-top";
 
@@ -80,7 +105,12 @@ switch (command)
             var progress = new SyncProgress<int>(percent =>
                 Console.Write($"\r[Хід імпорту]: {percent}% завершено..."));
 
-            var importPath = Path.Combine(Environment.CurrentDirectory, "data", "sample.json");
+            var positionalImport = args.Where(a => !a.StartsWith("--")).Skip(1).FirstOrDefault();
+            var importPath = positionalImport is null
+                ? Path.Combine(dataDir, "sample.json")
+                : Path.GetFullPath(positionalImport);
+
+            PrintConfig();
 
             try
             {
@@ -107,6 +137,18 @@ switch (command)
                 Console.WriteLine($"\nФайл або папку не знайдено: {importPath}");
             }
         }
+        break;
+
+    case "export":
+        PrintConfig();
+        var positionalExport = args.Where(a => !a.StartsWith("--")).Skip(1).FirstOrDefault();
+        var target = positionalExport is null
+            ? Path.Combine(dataDir, "export.json")
+            : Path.GetFullPath(positionalExport);
+        var all = service.All();
+        CatalogJson.WriteAtomic(target, all.Select(b => b.ToDto()));
+        Console.WriteLine($"Експортовано записів: {all.Count}");
+        Console.WriteLine($"Файл експорту: {target}");
         break;
 
     case "report-top":
@@ -164,10 +206,9 @@ switch (command)
         break;
 
     default:
-        Console.WriteLine("Команди: import | report-top | report-old | report-groups | report-sum | report-join | demo-deferred | report-perf");
+        Console.WriteLine("Команди: import | export | report-top | report-old | report-groups | report-sum | report-join | demo-deferred | report-perf");
         break;
 }
-
 return 0;
 
 static void PrintLines(IReadOnlyList<LibraryReportLine> lines)
@@ -208,4 +249,12 @@ static void RunPerformanceTest()
 
     Console.WriteLine($"1. Без ToList всередині (Відкладене виконання): {time1} мс");
     Console.WriteLine($"2. З проміжним ToList  (Створення копії)      : {time2} мс");
+}
+
+void PrintConfig()
+{
+    Console.WriteLine($"Середовище       : {envName}");
+    Console.WriteLine($"Файл даних       : {dataFile}");
+    Console.WriteLine($"Library:LoanDays : {options.Library.LoanDays}");
+    Console.WriteLine(apiKey is null ? "ApiKey: не заданий" : $"ApiKey: присутній, довжина {apiKey.Length}");
 }

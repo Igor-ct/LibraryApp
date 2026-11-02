@@ -6,17 +6,98 @@
 
 ## Запуск
 
-1. build:
-
 ```bash
- dotnet build
+dotnet build
+dotnet run --project src/Cli                              # звіт за замовчуванням (report-top)
+dotnet run --project src/Cli -- import [файл.json]        # асинхронний імпорт
+dotnet run --project src/Cli -- export [файл.json] --file # експорт колекції в JSON
 ```
 
-2. Запуск консольного застосунку:
+Прапорець `--file` вмикає файлове сховище. Без нього застосунок працює з даними в пам'яті.
+
+## Конфігурація
+
+Джерела читаються по черзі, кожне наступне перекриває попереднє:
+
+`appsettings.json` → `appsettings.{CROSSAPP_ENVIRONMENT}.json` → user-secrets → змінні середовища `CROSSAPP_*`
+
+| Ключ | Змінна середовища | За замовчуванням | Призначення |
+|---|---|---|---|
+| `Storage:DataPath` | `CROSSAPP_Storage__DataPath` | `data` | каталог даних (відносний рахується від каталогу застосунку) |
+| `Storage:FileName` | `CROSSAPP_Storage__FileName` | `library_catalog.json` | файл сховища |
+| `Library:LoanDays` | `CROSSAPP_Library__LoanDays` | `14` | термін видачі, днів |
+| `Logging:MinimumLevel` | `CROSSAPP_Logging__MinimumLevel` | `Information` | рівень логу |
+| `EnvironmentName` | `CROSSAPP_EnvironmentName` | `Production` | інформаційна назва середовища |
+| `Integration:ApiKey` | `CROSSAPP_Integration__ApiKey` | не задано | секрет: лише user-secrets або env |
+| не ключ конфігурації | `CROSSAPP_DATA_PATH` | не задано | проста змінна, перекриває `Storage:DataPath` |
+| не ключ конфігурації | `CROSSAPP_ENVIRONMENT` | `Development` | вибір профілю |
+
+Вкладений ключ у змінній середовища записується з подвійним підкресленням замість двокрапки (`Storage:DataPath` → `Storage__DataPath`).
+
+### Профілі
+
+| Профіль | Вмикається | Лог | Дані |
+|---|---|---|---|
+| Production | `CROSSAPP_ENVIRONMENT=Production` (значення базового `appsettings.json`) | `Information` | `data/` |
+| Development | за замовчуванням (`appsettings.Development.json`) | `Debug` | `data-dev/` |
+
+### Приклади змінних
+
+PowerShell:
+
+```powershell
+$env:CROSSAPP_DATA_PATH = "$env:TEMP\libdata"
+$env:CROSSAPP_ENVIRONMENT = "Production"
+$env:CROSSAPP_Integration__ApiKey = "from-env"
+dotnet run --project src/Cli -- export --file
+```
+
+bash:
 
 ```bash
- dotnet run --project src/Cli
+CROSSAPP_DATA_PATH=/tmp/libdata dotnet run --project src/Cli -- export --file
+CROSSAPP_ENVIRONMENT=Production CROSSAPP_Integration__ApiKey=from-env \
+  dotnet run --project src/Cli -- export --file
 ```
+
+### Secrets
+
+Значення ключа в репозиторії немає, комітиться лише `UserSecretsId` у `Cli.csproj`.
+
+```bash
+dotnet user-secrets init --project src/Cli
+dotnet user-secrets set "Integration:ApiKey" "local-dev-key" --project src/Cli
+dotnet user-secrets list --project src/Cli
+```
+
+Файл `secrets.json` лежить поза репозиторієм:
+
+- Windows: `%APPDATA%\Microsoft\UserSecrets\<UserSecretsId>\secrets.json`
+- Linux/macOS: `~/.microsoft/usersecrets/<UserSecretsId>/secrets.json`
+
+User-secrets призначені для локальної розробки. Для розгорнутого застосунку використовуйте змінні середовища або сховище секретів. У консоль друкується лише «присутній, довжина N».
+
+### Шляхи
+
+Усі шляхи будуються через `Path.Combine`, базовий каталог це `AppContext.BaseDirectory`, а не поточний робочий каталог. Тому з кореня solution і з `src/Cli` застосунок працює з тим самим файлом даних. Абсолютний `Storage:DataPath` використовується як є.
+
+## Імпорт та експорт JSON
+
+- `import` без аргументу читає `data/sample.json` поруч зі скомпільованим застосунком. З аргументом (`import data/import_valid.json`) відносний шлях рахується від поточного каталогу.
+- `export` записує всю колекцію у `export.json` у каталозі даних або у вказаний файл.
+- Запис атомарний: дані пишуться у `*.tmp`, потім `File.Move(..., overwrite: true)`.
+- JSON у camelCase, кирилиця не екранується (`UnsafeRelaxedJsonEscaping`).
+- Пошкоджений файл дає зрозуміле повідомлення без стектрейсу.
+
+Приклади вхідних даних: `data/import_valid.json` (успішний імпорт), `data/import_invalid.json` (запис 3 із порожнім ISBN: «Дані відхилено: Запис 3: ...»).
+
+## Перевірка скасування
+
+```bash
+dotnet run --project src/Cli -- import
+```
+
+Під час імпорту натисніть **Ctrl+C**: «Імпорт скасовано користувачем (Ctrl+C).». Для таймауту тимчасово змініть `FromSeconds(30)` на `FromSeconds(2)` у `case "import"`.
 
 ## Публікація
 
@@ -160,6 +241,24 @@ dotnet test --list-tests
 | | `Totals_AllIssued_AvailableIsZero` | усі видані |
 | | `GetActiveLendings_JoinsOnlyMatchingBooks_AndMapsFields` | `Join` лише за збігом Id |
 | | `GetActiveLendings_NoMatches_ReturnsEmpty` | немає збігів |
+| `StorageTests` | `ResolveFullPath_Relative_UsesBaseDir_AndCreatesDirectory` | відносний шлях рахується від базового каталогу, каталог створюється |
+| | `ResolveFullPath_Absolute_IgnoresBaseDir` | абсолютний шлях не змінюється |
+| | `FileStore_PersistsBetweenInstances_AndCreatesMissingDirectory` | запис переживає перезапуск, відсутній каталог створюється |
+| | `FileStore_WritesReadableCyrillic_CamelCase_AndLeavesNoTmp` | кирилиця без `\u`, camelCase, `.tmp` не лишається |
+| | `FileStore_CorruptedJson_ThrowsInvalidDataException` | зіпсований JSON дає `InvalidDataException` |
+| | `FileStore_InvalidRecord_ThrowsInvalidDataException_WithRecordNumber` | поганий запис у файлі: номер запису в повідомленні |
+| | `FileStore_UpdateAndRemove_ArePersisted` | `Update` і `Remove` зберігаються |
+| | `WriteAtomic_OverwritesExistingFile_AndLeavesNoTmp` | перезапис наявного файлу |
+| | `FileStore_DuplicateId_ThrowsAndKeepsFileUnchanged` | дублікат не змінює файл |
+| `StorageTests` | `ResolveFullPath_Relative_UsesBaseDir_AndCreatesDirectory` | відносний шлях рахується від базового каталогу, каталог створюється |
+| | `ResolveFullPath_Absolute_IgnoresBaseDir` | абсолютний шлях не змінюється |
+| | `FileStore_PersistsBetweenInstances_AndCreatesMissingDirectory` | запис переживає перезапуск, відсутній каталог створюється |
+| | `FileStore_WritesReadableCyrillic_CamelCase_AndLeavesNoTmp` | кирилиця без `\u`, camelCase, `.tmp` не лишається |
+| | `FileStore_CorruptedJson_ThrowsInvalidDataException` | зіпсований JSON дає `InvalidDataException` |
+| | `FileStore_InvalidRecord_ThrowsInvalidDataException_WithRecordNumber` | поганий запис у файлі: номер запису в повідомленні |
+| | `FileStore_UpdateAndRemove_ArePersisted` | `Update` і `Remove` зберігаються |
+| | `WriteAtomic_OverwritesExistingFile_AndLeavesNoTmp` | перезапис наявного файлу |
+| | `FileStore_DuplicateId_ThrowsAndKeepsFileUnchanged` | дублікат не змінює файл |
 
 ### Відкладене виконання (Deferred Execution)
 
@@ -181,7 +280,7 @@ LINQ-запити (наприклад, `Where` чи `Select`) не викону�
 
 ## Додаткова інформацяія
 
-| RID       | Режим               | Розмір publish | Потрібен встановлений .NET Runtime |
+| RID       | Режим               | Розмір publish | Потрібен встановлений .NET Runtime  |
 |-----------|---------------------|----------------|-------------------------------------|
 | win-x64   | Self-contained      | 76,68 MB       | Ні                                  |
 | win-x64   | Framework-dependent | 0,19 MB        | Так                                 |

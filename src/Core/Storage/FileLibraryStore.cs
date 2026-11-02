@@ -1,17 +1,10 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Text.Json;
-using Core.Abstractions;
+﻿using Core.Abstractions;
 using Core.Domain;
-using Core.Dto;
 
 namespace Core.Storage;
 
 public sealed class FileLibraryStore(string path) : ILibraryStore
 {
-    private static readonly JsonSerializerOptions Options = new() { WriteIndented = true };
     private readonly Dictionary<string, BookCopy> _cache = new(StringComparer.OrdinalIgnoreCase);
     private readonly string _path = Path.GetFullPath(path);
     private bool _loaded;
@@ -19,35 +12,39 @@ public sealed class FileLibraryStore(string path) : ILibraryStore
     private void EnsureLoaded()
     {
         if (_loaded) return;
+
         if (File.Exists(_path))
         {
-            var dtos = JsonSerializer.Deserialize<List<BookDto>>(File.ReadAllText(_path)) ?? [];
-            foreach (var dto in dtos)
+            List<Dto.BookDto> dtos;
+            try { dtos = CatalogJson.Read(_path); }
+            catch (System.Text.Json.JsonException ex)
             {
-                var p = BookCopy.FromDto(dto);
-                _cache[p.Id] = p;
+                throw new InvalidDataException($"Файл даних пошкоджено: {_path}. {ex.Message}", ex);
+            }
+
+            _cache.Clear();
+            for (var i = 0; i < dtos.Count; i++)
+            {
+                try
+                {
+                    var book = BookCopy.FromDto(dtos[i]);  
+                    _cache[book.Id] = book;
+                }
+                catch (ArgumentException ex)
+                {
+                    throw new InvalidDataException($"Файл {_path}, запис {i + 1}: {ex.Message}", ex);
+                }
             }
         }
         _loaded = true;
     }
 
-    private void Flush()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        File.WriteAllText(_path, JsonSerializer.Serialize(_cache.Values.Select(p => p.ToDto()).ToList(), Options));
-    }
+    private void Flush() =>
+        CatalogJson.WriteAtomic(_path, _cache.Values.Select(b => b.ToDto()));
 
-    public IReadOnlyList<BookCopy> List()
-    {
-        EnsureLoaded();
-        return _cache.Values.ToList();
-    }
+    public IReadOnlyList<BookCopy> List() { EnsureLoaded(); return _cache.Values.ToList(); }
 
-    public BookCopy? GetById(string id)
-    {
-        EnsureLoaded();
-        return _cache.GetValueOrDefault(id);
-    }
+    public BookCopy? GetById(string id) { EnsureLoaded(); return _cache.GetValueOrDefault(id); }
 
     public void Add(BookCopy item)
     {
@@ -61,12 +58,7 @@ public sealed class FileLibraryStore(string path) : ILibraryStore
         Flush();
     }
 
-    public void Update(BookCopy item)
-    {
-        EnsureLoaded();
-        _cache[item.Id] = item;
-        Flush();
-    }
+    public void Update(BookCopy item) { EnsureLoaded(); _cache[item.Id] = item; Flush(); }
 
     public bool Remove(string id)
     {
@@ -75,7 +67,8 @@ public sealed class FileLibraryStore(string path) : ILibraryStore
         Flush();
         return true;
     }
-    public IReadOnlyList<BookCopy> Find(System.Func<BookCopy, bool> predicate)
+
+    public IReadOnlyList<BookCopy> Find(Func<BookCopy, bool> predicate)
     {
         EnsureLoaded();
         return _cache.Values.Where(predicate).ToList();
