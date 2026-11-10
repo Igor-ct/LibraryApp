@@ -15,6 +15,93 @@ dotnet run --project src/Cli -- export [файл.json] --file # експорт �
 
 Прапорець `--file` вмикає файлове сховище. Без нього застосунок працює з даними в пам'яті.
 
+## Api (Minimal API)
+
+Другий вхід у систему поряд із Cli. Обидва проєкти використовують той самий `Core`, а `Core` не залежить від ASP.NET.
+
+### Запуск
+
+```bash
+dotnet run --project src/Api --urls http://localhost:5080
+```
+
+Порт зафіксовано в `src/Api/Properties/launchSettings.json` (5080).
+
+| Адреса | Призначення |
+|---|---|
+| `http://localhost:5080/scalar/v1` | Scalar UI (лише Development) |
+| `http://localhost:5080/openapi/v1.json` | OpenAPI-документ (лише Development) |
+| `http://localhost:5080/health` | перевірка стану |
+
+### Маршрути
+
+| Метод | Шлях | Тіло | Коди |
+|---|---|---|---|
+| GET | `/api/books?page=&pageSize=&search=&author=` | немає | 200, 400 |
+| GET | `/api/books/{id}` | немає | 200, 404 |
+| POST | `/api/books` | `SaveBookRequest` | 201 (+`Location`), 400 |
+| PUT | `/api/books/{id}` | `SaveBookRequest` | 200, 400, 404 |
+| DELETE | `/api/books/{id}` | немає | 204, 404 |
+| POST | `/api/books/{id}/issue` | немає | 200, 404, 409 |
+| POST | `/api/books/{id}/return` | немає | 200, 404, 409 |
+
+### Контракт
+
+`SaveBookRequest` (вхід): `{ "isbn", "title", "author", "year" }`.
+`BookResponse` (вихід): `{ "id", "isbn", "title", "author", "year", "isIssued" }`.
+Список повертає `{ "items": [...], "total": N }`, де `total` це кількість після фільтрації.
+
+Параметри списку: `page` (від 1, за замовчуванням 1), `pageSize` (1-100, за замовчуванням 20), `search` (назва, автор або ISBN), `author`.
+
+### Помилки
+
+| Ситуація | Код | Тіло |
+|---|---|---|
+| Невалідні поля, кривий JSON, порожнє тіло | 400 | `ValidationProblemDetails`: `errors` — словник «поле → повідомлення» |
+| Книгу не знайдено | 404 | `ProblemDetails` |
+| Порушення бізнес-правила (повторна видача, повернення невиданого) | 409 | `ProblemDetails`, `detail` містить пояснення |
+| Неочікувана помилка | 500 | `ProblemDetails` без стектрейсу |
+
+Валідацію виконує FluentValidation (`SaveBookRequestValidator`) через endpoint filter `ValidationFilter<T>`. `DomainException` перетворюється на 409 обробником `DomainExceptionHandler`.
+
+### Приклади curl
+
+```bash
+# створити (201 + Location)
+curl -i -X POST http://localhost:5080/api/books -H "Content-Type: application/json" \
+  -d '{"isbn":"978-966-03-0001-1","title":"Кобзар","author":"Тарас Шевченко","year":1840}'
+
+# прочитати, оновити, видалити
+curl -i http://localhost:5080/api/books/<id>
+curl -i -X PUT http://localhost:5080/api/books/<id> -H "Content-Type: application/json" \
+  -d '{"isbn":"978-966-03-0001-1","title":"Кобзар 2","author":"Тарас Шевченко","year":1860}'
+curl -i -X DELETE http://localhost:5080/api/books/<id>
+
+# пагінація й пошук
+curl -i "http://localhost:5080/api/books?page=1&pageSize=2"
+curl -i "http://localhost:5080/api/books?search=Кобзар"
+
+# помилка валідації (400)
+curl -i -X POST http://localhost:5080/api/books -H "Content-Type: application/json" \
+  -d '{"isbn":"","title":"X","year":3000}'
+
+# повторна видача (409)
+curl -i -X POST http://localhost:5080/api/books/<id>/issue
+curl -i -X POST http://localhost:5080/api/books/<id>/issue
+```
+
+У PowerShell використовуйте `curl.exe`. Тіло краще передавати з файлу: `--data-binary "@body.json"`.
+
+Готові запити для середовища розробки лежать у `src/Api/Api.http`.
+
+### Сховище й DI
+
+`ILibraryStore` і `LendingService` зареєстровані як Singleton. Сховище обгорнуте в `SynchronizedLibraryStore` (потокобезпека через `lock`). Обробники отримують залежності параметрами делегатів, а не статично. Налаштування сховища (`Storage:DataPath`, `Storage:FileName`) беруться з того самого механізму конфігурації, що й у Cli.
+
+### Тести Api
+
+`tests/Api.Tests` містить інтеграційні тести на `WebApplicationFactory` (POST → 201 і `Location`, цикл замінити й видалити → 404, 400, 409, пагінація) та тести валідатора. Запуск: `dotnet test`.
+
 ## Конфігурація
 
 Джерела читаються по черзі, кожне наступне перекриває попереднє:

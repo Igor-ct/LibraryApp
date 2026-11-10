@@ -1,0 +1,72 @@
+@host = http://localhost:5080
+
+### Здоров'я сервісу
+GET {{host}}/health
+
+### Список -> { items, total }
+GET {{host}}/api/books
+
+### Пагінація
+GET {{host}}/api/books?page=1&pageSize=2
+
+### Пошук за назвою, автором або ISBN
+GET {{host}}/api/books?search=Кобзар
+
+### Фільтр за автором
+GET {{host}}/api/books?author=Шевченко
+
+### Некоректний pageSize -> 400
+GET {{host}}/api/books?pageSize=0
+
+### 1. Створити -> 201 і Location
+# @name create
+POST {{host}}/api/books
+Content-Type: application/json
+
+{ "isbn": "978-966-03-0001-1", "title": "Кобзар", "author": "Тарас Шевченко", "year": 1840 }
+
+### 2. Прочитати за id -> 200
+GET {{host}}/api/books/{{create.response.body.$.id}}
+
+### 3. Оновити -> 200
+PUT {{host}}/api/books/{{create.response.body.$.id}}
+Content-Type: application/json
+
+{ "isbn": "978-966-03-0001-1", "title": "Кобзар (оновлене видання)", "author": "Тарас Шевченко", "year": 1860 }
+
+### 4. Оновити з порожньою назвою -> 400
+PUT {{host}}/api/books/{{create.response.body.$.id}}
+Content-Type: application/json
+
+{ "isbn": "1", "title": "", "author": "X", "year": 2000 }
+
+### 5. Видати -> 200
+POST {{host}}/api/books/{{create.response.body.$.id}}/issue
+
+### 6. Видати ще раз -> 409
+POST {{host}}/api/books/{{create.response.body.$.id}}/issue
+
+### 7. Повернути -> 200
+POST {{host}}/api/books/{{create.response.body.$.id}}/return
+
+### 8. Видалити -> 204
+DELETE {{host}}/api/books/{{create.response.body.$.id}}
+
+### 9. Після видалення -> 404
+GET {{host}}/api/books/{{create.response.body.$.id}}
+
+### Невалідні дані -> 400 (Isbn, Year)
+POST {{host}}/api/books
+Content-Type: application/json
+
+{ "isbn": "", "title": "X", "year": 3000 }
+
+### Неправильний тип поля -> 400
+POST {{host}}/api/books
+Content-Type: application/json
+
+{ "isbn": "1", "title": "X", "year": "abc" }
+
+### Порожнє тіло -> 400
+POST {{host}}/api/books
+Content-Type: application/json

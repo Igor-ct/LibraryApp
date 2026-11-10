@@ -129,3 +129,17 @@ public sealed class StorageTests : IDisposable
         Assert.Single(new FileLibraryStore(path).List());
     }
 }
+
+public class SynchronizedStoreTests
+{
+    [Fact]
+    public void ParallelAdds_AreAllStored()
+    {
+        var store = new SynchronizedLibraryStore(new InMemoryLibraryStore());
+
+        Parallel.For(0, 500, i =>
+            store.Add(BookCopy.Create($"C-{i:D4}", "111", $"Книга {i}", 2000)));
+
+        Assert.Equal(500, store.List().Count);
+    }
+}
