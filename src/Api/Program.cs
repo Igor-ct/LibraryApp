@@ -1,51 +1,53 @@
 using Api;
-using Api.Endpoints;
-using Core;
-using Core.Abstractions;
-using Core.Configuration;
-using Core.Services;
-using Core.Storage;
-using Scalar.AspNetCore;
 using Api.Contracts;
+using Api.Endpoints;
 using Api.Validation;
+using Core.Abstractions;
+using Core.Services;
 using FluentValidation;
+using Infrastructure;
+using Infrastructure.Persistence;
+using Microsoft.Data.Sqlite;
+using Microsoft.EntityFrameworkCore;
+using Scalar.AspNetCore;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables(prefix: "CROSSAPP_");
 
-var options = builder.Configuration.Get<AppOptions>() ?? new AppOptions();
-var legacy = Environment.GetEnvironmentVariable("CROSSAPP_DATA_PATH");
-var storage = new StorageOptions
+var raw = builder.Configuration.GetConnectionString("AppDb") ?? "Data Source=data/app.db";
+var csb = new SqliteConnectionStringBuilder(raw);
+if (!Path.IsPathRooted(csb.DataSource))
 {
-    DataPath = string.IsNullOrWhiteSpace(legacy) ? options.Storage.DataPath : legacy,
-    FileName = options.Storage.FileName
-};
-var dataFile = storage.ResolveFullPath(AppContext.BaseDirectory);
+    var full = Path.Combine(builder.Environment.ContentRootPath, csb.DataSource);
+    Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+    csb.DataSource = full;
+}
 
 builder.Services.AddOpenApi();
 builder.Services.AddProblemDetails();
 builder.Services.Configure<RouteHandlerOptions>(o => o.ThrowOnBadRequest = false);
-builder.Services.AddSingleton<IValidator<SaveBookRequest>, SaveBookRequestValidator>();
 builder.Services.AddExceptionHandler<DomainExceptionHandler>();
+builder.Services.AddSingleton<IValidator<SaveBookRequest>, SaveBookRequestValidator>();
 
-builder.Services.AddSingleton<ILibraryStore>(_ =>
-{
-    var store = new SynchronizedLibraryStore(new FileLibraryStore(dataFile));
-    if (store.List().Count == 0)
-        foreach (var b in SampleData.Books()) store.Add(b);
-    return store;
-});
-builder.Services.AddSingleton<LendingService>();
+builder.Services.AddDbContext<AppDbContext>(o => o.UseSqlite(csb.ConnectionString));
+builder.Services.AddScoped<ILibraryStore, EfLibraryStore>();
+builder.Services.AddScoped<LendingService>();   
 
 var app = builder.Build();
+
+if (app.Environment.IsDevelopment())           
+{
+    using var scope = app.Services.CreateScope();
+    scope.ServiceProvider.GetRequiredService<AppDbContext>().Database.Migrate();
+}
 
 app.UseExceptionHandler();
 app.UseStatusCodePages();
 
 if (app.Environment.IsDevelopment())
 {
-    app.MapOpenApi();               
-    app.MapScalarApiReference();    
+    app.MapOpenApi();
+    app.MapScalarApiReference();
 }
 
 app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
@@ -53,4 +55,4 @@ app.MapBooks();
 
 app.Run();
 
-public partial class Program;      
+public partial class Program;

@@ -494,3 +494,8 @@ data-prod/
 secrets.json
 *.local.json
 .env
+
+# SQLite
+*.db
+*.db-shm
+*.db-wal
